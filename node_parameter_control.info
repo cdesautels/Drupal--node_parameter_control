@@ -1,0 +1,5 @@
+; $Id: node_parameter_control.info,v 1.1 2009/02/19 19:14:53 cdesautels Exp $ 
+name = Node Parameter Control
+description = Provides fine-grain control of the parameters displayed in node admin pages.
+core = 6.x
+version = 6.x-1.0-rc2

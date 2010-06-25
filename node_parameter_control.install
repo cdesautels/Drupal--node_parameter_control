@@ -1,0 +1,36 @@
+<?php
+// $Id: node_parameter_control.install,v 1.1 2009/02/19 19:14:53 cdesautels Exp $
+/**
+ * @file
+ * Manages the install and uninstall of custom table 'node_parameter_contral'.
+*/
+function node_parameter_control_schema() {
+    $schema['node_parameter_control'] = array(
+        'fields' => array(
+            'type' => array(
+                'type' => 'varchar',
+                'length' => 32,
+                'not null' => TRUE
+            ),
+            'data' => array(
+                'type' => 'text',
+                'size' => 'normal',
+                'not null' => TRUE
+            ),
+            'precedence' => array(
+                'type' => 'varchar',
+                'length' => 8,
+                'not null' => TRUE
+            ),
+        )
+    );
+    return $schema;
+}
+function node_parameter_control_install() {
+  // Create my tables.
+  drupal_install_schema('node_parameter_control');
+}
+function node_parameter_control_uninstall() {
+  // Drop my tables.
+  drupal_uninstall_schema('node_parameter_control');
+} 

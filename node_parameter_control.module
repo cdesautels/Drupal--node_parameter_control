@@ -1,0 +1,390 @@
+<?php
+// $Id: node_parameter_control.module,v 1.1 2009/02/19 19:14:53 cdesautels Exp $
+/**
+ * @file
+ * Implements fine grained control of node edit parameters.
+ */
+// Set variables
+$_node_parameter_control_contenttype = '';
+function node_parameter_control_menu() {
+  $items = array();
+    $items['admin/settings/node_parameter_control'] = array(
+      'title' => 'Node Parameter Control',
+      'description' => 'Enable/disable the display of certain parameters on the node edit pages',
+      'page callback' => 'node_parameter_control',
+      'access callback' => 'user_access',
+      'access arguments' => array('Node Parameter Control')
+    );
+    $items['admin/settings/node_parameter_control/settings'] = array(
+      'title' => 'Node Parameter Control Settings',
+      'description' => 'Enable/disable the display of certain parameters on the node edit pages',
+      'page callback' => 'node_parameter_control_settings',
+      'access callback' => TRUE,
+      'type' => MENU_CALLBACK
+    );
+    $path = drupal_get_path('module', 'node_parameter_control');
+    drupal_add_css($path .'/node_parameter_control.css', 'module', 'all', FALSE);
+  return $items;
+}
+function node_parameter_control_form_alter(&$form, $form_state, $form_id) {
+  /*  On the main content admin page, the publishing opton is disabled if the current user has publishing options
+      turned off for ANY CONTENT TYPE. This is treated globally here because this this page is so powerful. */
+  if ($form_id == 'node_admin_content') {
+    if (_publishPermission() == FALSE) {
+      $form['admin']['options']['operation']['#options'] = array(
+        'promote' => t('Promote to front page'),
+        'demote' => t('Demote from front page'),
+        'sticky' => t('Make sticky'),
+        'unsticky' => t('Remove stickiness'),
+        'delete' => t('Delete')
+      );
+    }
+  }
+}
+/*  Called from the hook_form_alter if we are on the main content admin page.
+    Used to disable the publish option. Unlike the other individual node edit pages
+    This is a global change, it removes the publishing option for all content types,
+    even if the user's publishing option is disabled for even just one content type.
+    This is necessary because the main content admin page is so powerful. */
+function _publishPermission() {
+  global $user;
+  // Pull the roles of the current user
+  $current_roles = $user->roles;
+  if ($user->uid == 1) {
+    $current_roles[] = 'root';
+  }
+  // Pull the rules for ALL content types
+  // But only if 
+  if (db_result(db_query("SELECT COUNT(*) FROM {node_parameter_control}"))) {
+      $all_node_rules_serialized = db_fetch_array(db_query("SELECT data FROM {node_parameter_control}"));
+      foreach ($all_node_rules_serialized as $node_rules_serialized) {
+        $node_rules_US = unserialize($node_rules_serialized);
+        if (count($node_rules_US)) {
+          foreach ($node_rules_US as $rs_key => $rule_set) {
+          // Check to make sure the ruleset is matched to a current role
+          // The ruleset key is the name of the role it should be applied to
+          // But we have to swap underscores with spaces to match the way roles are stored by Drupal.
+          // If there's a match, process the form exclusions
+          if (in_array(str_replace('_', ' ', $rs_key), $current_roles)) {
+            foreach ($rule_set as $k => $v) {
+              // If there's any instance of a "no publishing" flag, disable the publishing option and drop out of the loop.
+              if ($k == 'options' && $v) {
+                return FALSE;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  return TRUE;
+}
+function node_parameter_control_perm() {
+  return array('Node Parameter Control');
+}
+// The admin page
+function node_parameter_control() {
+  // Gather all content types and print them out in a list of links.
+  $result = db_query("SELECT type FROM {node_type}");
+  $output = '<p>'. t('The granular node admin module allows finegrain control over the the display of base parameters in the node edit pages. It\'s recommended you first try to accomplish your requirements with the ');
+  $output .= l('administer permissions', 'admin/user/permissions');
+  $output .= ' before resorting to this module</p>';
+  $output .= '<h3>'. t('Content Types') .'</h3>';
+  while ($data = db_fetch_object($result)) {
+    $output .= '<p>'. l($data->type, "admin/settings/node_parameter_control/settings/" . $data->type) .'</p>';
+  }
+  return $output;
+}
+function node_parameter_control_settings($type) {
+  $output = '<h2>'. t(arg(4)) .'</h2>';
+  $output .= '<p id="backtoNodeParamControlAdmin">'. l('Back to content type list', 'admin/settings/node_parameter_control/') .'</p>';
+  $output .= '<p>'. t('Selecting a checkbox DISABLES the form parameter for that role. For users with multiple roles, the behavior is controlled by the "precedence" setting. "Input Format" is contained within the "Body" fieldset, so selecting "Body" will disable "Input Format" along with it.') .'</p>';
+  $output .= drupal_get_form('node_parameter_control_form', $type);
+  return $output;
+}
+function node_parameter_control_form($type) {
+  $path = drupal_get_path('module', 'node_parameter_control');
+  drupal_add_css($path .'/node_parameter_control.css', 'module');
+  global $user;
+  $all_roles = user_roles(TRUE);
+  if ($user->uid == 1) {
+    $all_roles[] = 'root';
+  }
+  $node_rules_precedence = db_result(db_query("SELECT precedence FROM {node_parameter_control} WHERE type = '%s'", arg(4)));
+  $node_rules_serialized = db_result(db_query("SELECT data FROM {node_parameter_control} WHERE type = '%s'", arg(4)));
+  $node_rules_US = unserialize($node_rules_serialized);
+  $form['#redirect'] = 'admin/settings/node_parameter_control';
+  $form['settings'] = array(
+      '#type' => 'fieldset',
+      '#tree' => TRUE
+  );
+  //LABELS
+  $form['settings']['listStart'] = array(
+    '#value' => '<table><tr class="labels">'
+  );
+  $form['settings']['label_role'] = array(
+    '#prefix' => '<td class="col_role">',
+    '#value' => t('<br />Role'),
+    '#suffix' => '</td>'
+  );
+  $form['settings']['label_body'] = array(
+    '#prefix' => '<td class="col_body">',
+    '#value' => t('<br />Body'),
+    '#suffix' => '</td>'
+  );
+  $form['settings']['label_inputFormat'] = array(
+    '#prefix' => '<td class="col_inputformat">',
+    '#value' => t('Input<br />Format'),
+    '#suffix' => '</td>'
+  );
+  $form['settings']['label_logMessage'] = array(
+    '#prefix' => '<td class="col_log">',
+    '#value' => t('Revision<br />Information'),
+    '#suffix' => '</td>'
+  );
+  $form['settings']['label_authoringInfo'] = array(
+    '#prefix' => '<td class="col_author">',
+    '#value' => t('Authoring<br />Infomation'),
+    '#suffix' => '</td>'
+  );
+  $form['settings']['label_publisingInfo'] = array(
+    '#prefix' => '<td class="col_pub">',
+    '#value' => t('Publishing<br />Options'),
+    '#suffix' => '</td>'
+  );
+  $form['settings']['label_menuSettings'] = array(
+    '#prefix' => '<td class="col_menu">',
+    '#value' => t('Menu<br />Settings'),
+    '#suffix' => '</td>'
+  );
+  $form['settings']['label_commentSettings'] = array(
+    '#prefix' => '<td class="col_comment">',
+    '#value' => t('Comment<br />Settings'),
+    '#suffix' => '</td>'
+  );
+  $form['settings']['label_pathSettings'] = array(
+    '#prefix' => '<td class="col_path">',
+    '#value' => t('URL Path<br />Settings'),
+    '#suffix' => '</td>'
+  );
+  $form['settings']['label_attachments'] = array(
+    '#prefix' => '<td class="col_file">',
+    '#value' => t('File<br />Attachments'),
+    '#suffix' => '</td>'
+  );
+  $form['settings']['labelsEnd'] = array(
+    '#value' => '</tr>'
+  );
+  // RULESETS by ROLE
+  foreach ($all_roles as $role) {
+    $role = str_replace(' ', '_', $role);
+    $form['settings'][$role][$role .'-listStart'] = array(
+      '#value' => '<tr class="settings">'
+    );
+    $form['settings'][$role][$role .'_role'] = array(
+      '#prefix' => '<td class="col_role">',
+      '#value' => t(str_replace('_', '<br />', $role)),
+      '#suffix' => '</td>'
+    );
+    $form['settings'][$role]['body_field'] = array(
+      '#prefix' => '<td class="col_body">',
+      '#type' => 'checkbox',
+      '#default_value' => $node_rules_US[$role]['body_field'],
+      '#suffix' => '</td>'
+    );
+    $form['settings'][$role]['body_field_format'] = array(
+      '#prefix' => '<td class="col_inputformat">',
+      '#type' => 'checkbox',
+      '#default_value' => $node_rules_US[$role]['body_field_format'],
+      '#suffix' => '</td>'
+    );
+    $form['settings'][$role]['revision_information'] = array(
+      '#prefix' => '<td class="col_log">',
+      '#type' => 'checkbox',
+      '#default_value' => $node_rules_US[$role]['revision_information'],
+      '#suffix' => '</td>'
+    );
+    $form['settings'][$role]['author'] = array(
+      '#prefix' => '<td class="col_author">',
+      '#type' => 'checkbox',
+      '#default_value' => $node_rules_US[$role]['author'],
+      '#suffix' => '</td>'
+    );
+    $form['settings'][$role]['options'] = array(
+      '#prefix' => '<td class="col_pubOptions">',
+      '#type' => 'checkbox',
+      '#default_value' => $node_rules_US[$role]['options'],
+      '#suffix' => '</td>'
+    );
+    $form['settings'][$role]['menu'] = array(
+      '#prefix' => '<td class="col_menu">',
+      '#type' => 'checkbox',
+      '#default_value' => $node_rules_US[$role]['menu'],
+      '#suffix' => '</td>'
+    );
+    $form['settings'][$role]['comment_settings'] = array(
+      '#prefix' => '<td class="col_comment">',
+      '#type' => 'checkbox',
+      '#default_value' => $node_rules_US[$role]['comment_settings'],
+      '#suffix' => '</td>'
+    );
+    $form['settings'][$role]['path'] = array(
+      '#prefix' => '<td class="col_path">',
+      '#type' => 'checkbox',
+      '#default_value' => $node_rules_US[$role]['path'],
+      '#suffix' => '</td>'
+    );
+    $form['settings'][$role]['attachments'] = array(
+      '#prefix' => '<td class="col_file">',
+      '#type' => 'checkbox',
+      '#default_value' => $node_rules_US[$role]['attachments'],
+      '#suffix' => '</td></tr>'
+    );
+  }
+  $form['settings'][$role][$role .'-listEnd'] = array(
+    '#value' => '</table>'
+  );
+  $form['precedence'] = array(
+    '#type' => 'select',
+    '#title' => t('Multi-role precedence'),
+    '#options' => array('disabled'=>t('Disabled'),'enabled'=>t('Enabled')),
+    '#default_value' => _default_precedence($node_rules_precedence),
+    '#description' => t('This setting only has an effect on users with more then one role. It defines which state takes precedence across all the roles. "Disabled" means that a parameter disabled (checked) for even just one role will turn off that parameter . "Enabled" means that a parameter enabled (unchecked) for just one role will turn on that parameter. In short, "disabled" means every checkbox for a parameter has to be unchecked for that parameter to be active. "Enabled" means that all have to be checked for that parameter to be inactive.')
+  );
+  $form['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Save settings')
+  );
+  return $form;
+}
+function _default_precedence($p) {
+  if ($p != '') {
+    return $p;
+  } else {
+    return 'disabled';
+  }
+}
+function node_parameter_control_form_submit($form, &$form_state) {
+  $output = array();
+  //First remove some form values we don't need. Then prepare the remaining form data for saving in the DB
+  unset($form_state['storage'],
+        $form_state['submitted'],
+        $form_state['values']['op'],
+        $form_state['values']['submit'],
+        $form_state['values']['form_build_id'],
+        $form_state['values']['form_token'],
+        $form_state['values']['form_id'],
+        $form_state['clicked_button'],
+        $form_state['redirect']);
+  foreach ($form_state['values']['settings'] as $k => $v) {
+    $output[$k] = array();
+    foreach ($form_state['values']['settings'][$k] as $k1 => $v1) {
+      if ($v1 == '1') {
+        $output[$k][$k1] = $v1;
+      }
+    }
+  }
+  _save_granular_settings(serialize($output), arg(4), $form_state['values']['precedence']);
+  drupal_set_message('The settings have been saved.');
+  //dpr($form_state);
+}
+function _save_granular_settings($serialized_data, $ctype, $precedence) {
+  // We only want one record per content type
+  $record_exists = db_result(db_query("SELECT COUNT(*) FROM {node_parameter_control} WHERE type = '%s'", $ctype));
+  if ($record_exists) {
+    db_query("UPDATE {node_parameter_control} SET data = '%s', precedence = '%s' WHERE type = '%s'", $serialized_data, $precedence, $ctype);
+  }
+  else {
+    db_query("INSERT INTO {node_parameter_control} (type, data, precedence) VALUES ('%s','%s','%s')", $ctype, $serialized_data, $precedence);
+  }
+}
+// If a content type is deleted, delete it's matching records here.
+function node_parameter_control_node_type($op, $info) {
+  switch ($op) {
+    case 'delete':
+      db_query("DELETE FROM {node_parameter_control} WHERE type = '%s'", $info->type);
+      break;
+  }
+}
+// We determine the node type here for use below
+function node_parameter_control_nodeapi(&$node, $op) {
+  global $_node_parameter_control_contenttype;
+  switch ($op) {
+    case 'prepare':
+      $_node_parameter_control_contenttype = $node->type;
+  }
+}
+// Hide the selected parameters in the the node "add" and "edit" pages.
+function phptemplate_node_form($form) {
+  $precedent = 'enable';
+  global $user, $_node_parameter_control_contenttype;
+  // Pull the roles of the current user
+  $current_roles = $user->roles;
+  if ($user->uid == 1) {
+    $current_roles[] = 'root';
+  }
+  // Pull the rules for the content type
+  $node_rules_serialized = db_result(db_query("SELECT data FROM {node_parameter_control} WHERE type = '%s'", $_node_parameter_control_contenttype));
+  $node_rules_precedence = db_result(db_query("SELECT precedence FROM {node_parameter_control} WHERE type = '%s'", $_node_parameter_control_contenttype));
+  $node_rules_US = unserialize($node_rules_serialized);
+  // Apply the rules for the content type
+  if ($node_rules_US != '') {
+    //print '<br><br>';
+    if ($node_rules_precedence == 'enabled') {
+      // Remove any role that doesn't apply to the current user.
+      foreach ($node_rules_US as $rs_key => $rule_set) {
+        if (!in_array(str_replace('_', ' ', $rs_key), $current_roles)) {
+          unset($node_rules_US[$rs_key]);
+        }
+      }
+        // Flip the keys with the values
+        foreach($node_rules_US as $k => $v) {
+            $node_rules[] = array_keys($v);
+        }
+        // Perform an intersect of all the sub arrays. Only the rules that apply to all roles make it through.
+        // REMEMBER that rules DISABLE parameters. Any role with a parameter enabled will override all the others.
+        $node_rules_intersect = call_user_func_array('array_intersect', $node_rules);
+        //dpr ($node_rules_intersect);
+        foreach ($node_rules_intersect as $field) {
+            // The input format array key format is different from the others. It needs special handling
+            if ($field== 'body_field_format') {
+                $form['body_field']['format']['#access'] = FALSE;
+            }
+            $form[$field]['#access'] = FALSE;
+        }
+    } else {
+    foreach ($node_rules_US as $rs_key => $rule_set) {
+      // Check to make sure the ruleset is matched to a current role
+      // The ruleset key is the name of the role it should be applied to
+      // But we have to swap underscores with spaces to match the way roles are stored by Drupal.
+      // If there's a match, process the form exclusions
+      if (in_array(str_replace('_', ' ', $rs_key), $current_roles)) {
+        foreach ($rule_set as $k => $v) {
+          // The input format array key format is different from the others. It needs special handling
+          if ($k == 'body_field_format') {
+            $form['body_field']['format']['#access'] = FALSE;
+          }
+          $form[$k]['#access'] = FALSE;
+        }
+      }
+    }
+  }
+  }
+  /*
+  FOR INFO PURPOSES
+  $form['body_field']['#access'] = false;
+  $form['body_field']['format']['#access'] = false;
+  $form['revision_information']['#access'] = false;
+  $form['author']['#access'] = false;
+  $form['options']['#access'] = false;
+  $form['menu']['#access'] = false;
+  $form['comment_settings']['#access'] = false;
+  $form['path']['#access'] = false;
+  $form['attachments']['#access'] = false;*/
+  // FOR TESTING
+  //dpr($form);
+  
+  // Before returning the form, make sure the buttons are at the bottom.
+  $form['buttons']['#weight'] = 10000;
+  return drupal_render($form);
+}

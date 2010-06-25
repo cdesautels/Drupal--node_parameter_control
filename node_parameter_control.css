@@ -1,0 +1,40 @@
+/* $Id: node_parameter_control.css,v 1.1 2009/02/19 19:14:53 cdesautels Exp $ */
+/**
+ * Granular Node Admin.
+ *
+ **/
+#node-parameter-control-form fieldset {
+	padding: 0;
+	margin: 0;
+	background-image: none;
+}
+#node-parameter-control-form fieldset table {
+	padding: 0;
+	margin: 0;
+	width: 100%;
+}
+#node-parameter-control-form tr td {
+	font-size: 10px;
+	text-align: center;
+	margin: 0;
+	padding: 4px;
+	line-height: 1.3em;
+}
+
+#node-parameter-control-form tr.labels td {
+	background-color: #eee;
+	border-bottom: 1px solid #999;
+}
+#node-parameter-control-form tr.settings td {
+}
+#node-parameter-control-form tr.settings td div {
+	margin: 0;
+	padding: 0;
+}
+#node-parameter-control-form tr td.col_role {
+	text-align: left;
+
+}
+p#backtoNodeParamControlAdmin {
+	text-align: right;
+}
